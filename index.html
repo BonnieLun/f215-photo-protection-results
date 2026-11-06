@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>F2.15 实验结果 · 照片保护攻击</title>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --card: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --accent: #185fa5;
+    --accent-soft: #e6f1fb;
+    --warn: #993c1d;
+    --warn-soft: #faeee7;
+    --ok: #0f6e56;
+    --ok-soft: #e1f5ee;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    line-height: 1.7;
+    font-size: 15px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 24px 64px; }
+  header { border-bottom: 2px solid var(--accent); padding-bottom: 20px; margin-bottom: 28px; }
+  h1 { font-size: 26px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.3px; }
+  .sub { color: var(--muted); font-size: 14px; }
+  .tag {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 500; margin-right: 6px;
+  }
+  .tag.warn { background: var(--warn-soft); color: var(--warn); }
+  .tag.ok { background: var(--ok-soft); color: var(--ok); }
+  .tag.neutral { background: var(--accent-soft); color: var(--accent); }
+  h2 { font-size: 19px; font-weight: 600; margin: 34px 0 12px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 20px 22px; margin: 14px 0;
+  }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+  th, td { padding: 9px 12px; text-align: center; border-bottom: 1px solid var(--line); font-size: 14px; }
+  th { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  td.left, th.left { text-align: left; }
+  tr.hl td { background: #fffdf5; font-weight: 600; }
+  .big { font-size: 18px; font-weight: 600; color: var(--ok); }
+  img { max-width: 100%; border-radius: 10px; border: 1px solid var(--line); display: block; margin: 16px 0; }
+  .figcap { text-align: center; color: var(--muted); font-size: 13px; margin-top: -8px; }
+  ul { padding-left: 22px; margin: 8px 0; }
+  li { margin: 6px 0; }
+  .note {
+    background: var(--warn-soft); border-left: 4px solid var(--warn);
+    padding: 14px 16px; border-radius: 0 8px 8px 0; margin: 18px 0; font-size: 14px;
+  }
+  .note b { color: var(--warn); }
+  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  code { background: #f1f5f9; padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>F2.15 实验归档：照片保护攻击首次实现全帧身份崩塌</h1>
+  <div class="sub">实验版本 F2.15 ｜ 模型 Wan2.2-TI2V-5B ｜ 日期 2026-11-06</div>
+  <div style="margin-top:12px;">
+    <span class="tag warn">开发验证 · 非正式结论</span>
+    <span class="tag neutral">扰动预算 L∞ ≤ 16/255</span>
+    <span class="tag ok">身份相似度 −0.67</span>
+  </div>
+</header>
+
+<h2>一、实验目标与方法</h2>
+<div class="card">
+  <p><b>目标</b>：在合法扰动预算 <b>L∞ ≤ 16/255</b>（人眼不可见的像素级扰动）下，对受保护照片施加扰动，使视频生成模型输出的画面无法被识别为源人物。</p>
+  <p><b>方法</b>：<b>可微白盒身份攻击（identity VJP）</b>——将 ArcFace 身份损失直接反向传播穿过整条采样链（DiT → VAE 解码器 → VAE 编码器 → 原始像素），而非优化中间编码距离。这是从「代理目标」转向「真实输出读出」的关键一步。</p>
+  <p>具体采用<b>两遍流式求导</b>：先无梯度前向收集信号，再恢复随机状态重放、逐位核验一致后执行梯度回传，最后以整数符号步长更新并投影回原图 ±16 区间。候选族为 ±1 / ±4 / ±8 / ±16（over 255）双极性整数扰动，最终选定 <code>r16-minus</code> 候选。</p>
+</div>
+
+<h2>二、关键结果</h2>
+<div class="card">
+  <p>本次实验<b>首次在预算内实现全帧（含首帧）身份相似度崩塌</b>，ε=16/255 也首次真正打满（此前 H3 系列仅能施加 7–8/255）。</p>
+
+  <table>
+    <tr><th class="left">身份指标</th><th>原图（clean）</th><th>受保护（protected）</th><th>变化</th></tr>
+    <tr class="hl"><td class="left">ArcFace R50 最大余弦</td><td>0.893</td><td><span class="big">0.224</span></td><td>−0.67</td></tr>
+    <tr class="hl"><td class="left">ArcFace R100 最大余弦</td><td>0.860</td><td><span class="big">0.278</span></td><td>−0.58</td></tr>
+  </table>
+
+  <p style="margin-top:20px;">逐帧 R50 余弦（含第 0 帧）：</p>
+  <table>
+    <tr><th class="left">帧</th><th>F0</th><th>F1</th><th>F2</th><th>F3</th><th>F4</th></tr>
+    <tr><td class="left">原图</td><td>0.893</td><td>0.882</td><td>0.846</td><td>0.815</td><td>0.804</td></tr>
+    <tr><td class="left">受保护</td><td>0.206</td><td>0.224</td><td>0.115</td><td>0.121</td><td>0.101</td></tr>
+  </table>
+
+  <img src="f2.15_effect.jpg" alt="F2.15 扰动效果对比">
+  <div class="figcap">图：原图（上）与受保护照片（下）生成的逐帧对比。受保护照片施加 16/255 扰动后，生成画面出现明显纹理破坏与结构伪影。</div>
+</div>
+
+<h2>三、结论与边界</h2>
+<div class="card">
+  <p>本次结果验证了「身份损失直攻输出读出」这一方向的<b>机制有效性</b>：在合法 16/255 预算内首次将 ArcFace 身份相似度从 0.89 降至 0.22（全帧含首帧），并伴随明显的画面破坏。</p>
+  <p>但需诚实说明以下边界，<b>尚不构成正式「攻击成功」结论</b>：</p>
+  <ul>
+    <li>识别器分数下降 ≠ 人类身份不可辨：第 0 帧人脸轮廓与五官肉眼仍可辨认，ArcFace 被纹理噪声干扰，而人类感知未必受同等影响；</li>
+    <li>本次为 Wan2.2-TI2V-5B 单模型开发验证，非原目标 MiniMax H3；</li>
+    <li>规模受限：256×256、5 帧、2 步采样、单一合成身份，需在正式设置（124 帧 / 49 步 / 多身份）复验；</li>
+    <li>未做人类盲评、FAR 校准与独立注册照检索。</li>
+  </ul>
+</div>
+
+<div class="note">
+  <b>注意</b>：本页为<b>开发阶段验证结果</b>，保护成功状态为 <code>false</code>。数据均来自独立审计逐帧复测（R50/R100 bit-exact），未做美化或夸大。
+</div>
+
+<h2>四、下一步</h2>
+<div class="card">
+  <ul>
+    <li>在正式生成设置（49 步 / 124 帧 / 多 seed、多 prompt）下复验本次结果是否成立；</li>
+    <li>补充独立注册照检索与人类盲评，回答「人是否仍认得出」；</li>
+    <li>向 MiniMax H3 迁移验证，检验 H3 的锚点广播与双通路冗余机制是否同样可破。</li>
+  </ul>
+</div>
+
+<footer>F2.15 实验归档 ｜ 生成于 2026-11-06 ｜ 仅供项目内部与导师评审使用</footer>
+
+</div>
+</body>
+</html>
